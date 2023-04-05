@@ -1,0 +1,58 @@
+# general
+logging_level: 'DEBUG' # 10 #
+
+---
+#Data info
+
+dataset_root_dir: '/home/kowalski/data/MIPT_campus/'
+sequence: '2023-02-21-07-28-58-day'
+
+img_filenames_path: '/home/kowalski/data/MIPT_campus/unpacked_2023-02-21-07-28-58-day/zed_node_left_image_rect_color_compressed/filenames.txt'
+img_dir_path: '/home/kowalski/data/MIPT_campus/unpacked_2023-02-21-07-28-58-day/zed_node_left_image_rect_color_compressed/images/demo'
+img_ts_path: '/home/kowalski/data/MIPT_campus/unpacked_2023-02-21-07-28-58-day/zed_node_left_image_rect_color_compressed/timestamps.txt'
+
+cloud_filenames_path: '/home/kowalski/data/MIPT_campus/unpacked_2023-02-21-07-28-58-day/velodyne_points/filenames.txt'
+cloud_dir_path: '/home/kowalski/data/MIPT_campus/unpacked_2023-02-21-07-28-58-day/velodyne_points/clouds/demo'
+cloud_ts_path: '/home/kowalski/data/MIPT_campus/unpacked_2023-02-21-07-28-58-day/velodyne_points/timestamps.txt'
+
+segmask_dir_path: '/home/kowalski/data/MIPT_campus/unpacked_2023-02-21-07-28-58-day/zed_node_left_image_rect_color_compressed/anno_demo'
+
+tf_path: ''
+
+
+segmentation_config: '/home/kowalski/data/MIPT_campus/anno_config.json'
+
+---
+
+# Sensors
+lidar:
+  lower_bounds: [-50, -50, -50]
+  upper_bounds: [50, 50, 50]
+
+max_ts_delay: 0.05 # 5e-5
+
+
+
+# q =  [w, x, y, z]
+# t = [x, y, z]
+front_cam:
+  config_path: '/home/kowalski/data/MIPT_campus/calib/zed_calib.yml'
+  left:
+    lidar2cam_q: [-0.5098432024259881,-0.497602232228181, 0.49791462150659926, -0.4945027372133386]
+    lidar2cam_t: [0.04632155672047202, -0.1327858803524132, -0.06092748914769486]
+
+  right:
+    lidar2cam_q: [-0.5098432024259881,-0.497602232228181, 0.49791462150659926, -0.4945027372133386] #! Not correct
+    lidar2cam_t: [0.04632155672047202, -0.1327858803524132, -0.06092748914769486] #! Not correct
+  
+back_cam:
+  config_path: '/home/kowalski/data/MIPT_campus/calib/realsense_calib.yml'
+  left:
+    lidar2cam_q: [-0.4996873443841852, -0.4927393159284719, -0.5006918959250938, 0.5067820706029872]
+    lidar2cam_t: [0.01827032885440663, -0.14178753281358009, -0.0672336302622617]
+
+  
+# lidar2cam_T:
+#   - [1, 0, 0, 0]
+#   - [0, 1, 0, 0]
+#   - [0, 0, 1, 0]
