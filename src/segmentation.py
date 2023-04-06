@@ -30,8 +30,8 @@ def segment_pointcloud(points: np.ndarray,
             cam_config (Config): Config object for one of cameras (should contatin path to calib file and resolution)
             point_labels (Optional[np.ndarray]): Array of labels for points (shape (n,), dtype=np.uint8). If passed - wil be updated, if not - created new one for all points in cloud and default label 0 (Unknown).
         Returns:
-            point_labels (np.ndarray): Array of labels for points (shape (n,), dtype=np.uint8).
-            uncertanities (np.ndarray): Array of uncertanities for labels. Calculated as 1/depth, where depth is the distance from the optical center of the camera to the point.
+            point_labels (np.ndarray): Array of labels for points (shape (n,), dtype=np.uint16).
+            uncertanities (np.ndarray): Array of uncertanities for labels (shape (n,), dtype=np.float32). Calculated as 1/depth, where depth is the distance from the optical center of the camera to the point.
             in_image_mask (np.ndarray): Binary mask for cloud points, with True for points that that were caught in the frame.
     """
 
@@ -50,6 +50,19 @@ def segment_pointcloud(points: np.ndarray,
     return point_labels, uncertanities, in_image
 
 def segment_pointcloud_batch(batch: list) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+        Just apply segment_pointcloud func for batch of keyposes and return merged cloud, labels, etc 
+
+        Args:
+            batch  ( [dataset[i], dataset[i+1], ...] ): list of tuples with scan pose, scan, seg_masks for cams, such tuple could be obtained using dataset.__get_item__ (dataset[idx]).
+
+        Returns:
+            scan_batch (np.ndarray): Array of points (shape (N,3), dtype=np.float32), where N = n1 + n2 + ..., ni - num of points in i-th element of batch.
+
+            point_labels (np.ndarray): Array of labels for points (shape (N,), dtype=np.uint16), where N same as for scan_batch.
+
+            uncertanities (np.ndarray): Array of uncertanities for labels (shape (N,), dtype=np.float32). Calculated as 1/depth, where depth is the distance from the optical center of the camera to the point.
+    """
     scan_batch = np.empty((0,3), dtype='float32')
     batch_labels = np.empty((0), dtype='int16')
     batch_uncert = np.empty((0), dtype='float32')
@@ -82,6 +95,22 @@ def segment_pointcloud_batch(batch: list) -> Tuple[np.ndarray, np.ndarray, np.nd
 def segment_pointcloud_w_semantic_uncert(dataset: MIPT_Campus_Dataset,
                                 target_scan_id: Union[int, np.intp],
                                 estimation_range: float) -> Tuple[np.ndarray, np.ndarray]:
+    
+    """
+    Segments pointcloud and estimates labels uncertanies comparing them with other scans in some range.
+
+        Args:
+            dataset (MIPT_Campus_Dataset): dataset instance for accessing other scans
+
+            target_scan_id (int OR np.intp): keypose id for segmentation.
+
+            estimation_range (float): the range within which the key poses (robot poses) will be found, to assess the confidence in the markup of the current scan. 
+
+            Note: it's not range for points, it range for robot poses. So, points range will be: estimation_range + lidar_range.
+        Returns:
+            target_scan_labels (np.ndarray): Array of labels for points (shape (n,), dtype=np.uint16.
+            labels uncertanities (np.ndarray): Array of uncertanities for labels (shape (n,), dtype=np.float32). Calculated as 1/depth, where depth is the distance from the optical center of the camera to the point.
+    """
     
     target_pose, target_scan, _, _ = dataset[target_scan_id]
     
