@@ -36,7 +36,7 @@ def imshow(img: np.ndarray, mask=False):
         plt.imshow(img)
 
 
-def cloudshow(cloud, colors=None, save_path=None):
+def cloudshow(cloud, colors=None, save_path=None, colorscale=None, labels=None):
     colored = not colors is None
 
     if not colored:
@@ -44,10 +44,13 @@ def cloudshow(cloud, colors=None, save_path=None):
         colorscale = 'Viridis'
         label=None
     else:
-        colorscale = PLOTLY_COLORSCALE
+        if colorscale is None:
+            colorscale = PLOTLY_COLORSCALE
 
     if colored:
         label=[STUFF_CLASSES[idx] for idx in colors]
+        if labels is not None:
+            label = [l_1 + '\n' + l_2 for l_1, l_2 in zip(label, labels)]
 
     fig = go.Figure(data=[go.Scatter3d(
         x=cloud[:,0],

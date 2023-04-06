@@ -11,13 +11,14 @@ logger = logging.getLogger(__name__)
 from src.config import get_config, Config
 from src.dataset import MIPT_Campus_Dataset
 from src.visualize import VisImage, cloudshow, save_colored_cloud, imshow, get_colored_mask
-from src.projection import project_scan_to_camera
 from src.utils import get_points_labels_by_mask, read_calib_file, transform_xyz
+from src.segmentation import segment_pointcloud, segment_pointcloud_w_semantic_uncert
 
 
 def main(cfg: Config):
     dataset = MIPT_Campus_Dataset(cfg)
-    # dataset._getitem_set['images'] = True
+    # dataset._getitem_set['scan'] = False
+    # dataset._getitem_set['segmentation_masks'] = False
 
     logger.info(f"Len ds: {len(dataset)}")
     logger.info(f"Len zed left: {len(dataset.zed_left_files)}")
@@ -25,67 +26,41 @@ def main(cfg: Config):
     logger.info(f"Len lidar: {len(dataset.scan_files)}")
     input()
 
-    # cloudshow(scan)
+    #! MAP
     map = np.empty((0,3), dtype='float32')
     map_labels = np.empty((0), dtype='int8')
+    #!\\\\\
+
+    batch_point_nums = []
 
     pbar = tqdm(total=len(dataset), desc="Segmenting scans..") #tqdm(total=len(dataset))
     i = 0
-    for pose, scan, zed_mask, realsense_mask in dataset: #zed_img, rs_img, 
-        # if i < 469:
-        #     i+=1
-        #     continue
-        if i ==500:
+    for m_pose, m_scan, _, _ in dataset: #zed_img, rs_img, , scan, zed_mask, realsense_mask
+        if i < 149:
+            i+=1
+            pbar.update(1)
+            continue
+        if i == 150:
             break
-        if scan is None:
+        if m_scan is None:
+            pbar.update(1)
+            i+=1
             logging.warning("Skip pose")
             continue
 
-        scan_labels = np.zeros(len(scan), dtype=np.uint8)
-        # map_labels = np.append(map_labels, scan_labels, axis=0)
+        m_scan_t = transform_xyz(m_pose, m_scan)
+        scan_labels, scan_uncert = segment_pointcloud_w_semantic_uncert(dataset, i, estimation_range=5.)
 
-        # Front cam
-        if zed_mask is not None:
-            P_z = read_calib_file(cfg.front_cam.config_path) # type: ignore
-            projected_z, depths, in_z_image = project_scan_to_camera(scan, P_z['P'],              # type: ignore
-                                                                P_z['resolution'],
-                                                                tf_config=cfg.front_cam.left, # type: ignore
-                                                                return_mask=True)
-            scan_labels[in_z_image] = get_points_labels_by_mask(projected_z, zed_mask)
-
-        # Back cam
-        if realsense_mask is not None:
-            P_r = read_calib_file(cfg.back_cam.config_path) # type: ignore
-            projected_r, depths, in_r_image = project_scan_to_camera(scan, P_r['P'],              # type: ignore
-                                                                P_r['resolution'],
-                                                                tf_config=cfg.back_cam.left, # type: ignore
-                                                                return_mask=True)
-            scan_labels[in_r_image] = get_points_labels_by_mask(projected_r, realsense_mask)
-
-        scan_t = transform_xyz(pose, scan)
-        
-        # ! #####
-        # colored = get_colored_mask(zed_img, zed_mask)
-        # colored.save('output/colored_469_zed.png')
-
-        # colored_r = get_colored_mask(rs_img, realsense_mask)
-        # colored_r.save('output/colored_470_rs.png')
-        # ! ##
-        # cloudshow(scan, scan_labels)
-        # input()
-        # exit(0)
-        # ! #####
-        logger.debug(f"Map shape: {map.shape} Scan shape: {scan.shape}")
-        # map = np.append(map, scan, axis=0)
-        map = np.append(map, scan_t, axis=0)
-        logger.debug(f"Labels shape: {map_labels.shape} labels shape: {scan_labels.shape}")
+        map = np.append(map, m_scan_t, axis=0)
+        # logger.debug(f"Labels shape: {map_labels.shape} labels shape: {batch_labels.shape}")
         map_labels = np.append(map_labels, scan_labels, axis=0)
+        #? map_labels = np.append(map_labels, np.asarray(scan_uncert > 0.7, dtype=np.uint16), axis=0)
 
         pbar.update(1)
         i+=1
     
     # cloudshow(map, map_labels)
-    save_colored_cloud(map, map_labels)
+    save_colored_cloud(map, map_labels, save_path='output/filter_moving_07.pcd')
 
     logger.info('Done!')
 

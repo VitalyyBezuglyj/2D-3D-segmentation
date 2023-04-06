@@ -8,7 +8,7 @@ import logging
 
 import cv2
 import numpy as np
-from typing import Union
+from typing import Union, Tuple
 
 from src.utils import read_calib_file, build_matrix
 
@@ -135,11 +135,12 @@ class MIPT_Campus_Dataset:
             realsense_idx = self.align_by_ts(idx, self.realsense_ts)
             zed_left_idx = self.align_by_ts(idx, self.zed_left_ts)
             zed_right_idx = self.align_by_ts(idx, self.zed_right_ts)
+            self.logger.debug(f"zed_idx: {zed_left_idx}") # type: ignore
+            self.logger.debug(f"rs_idx: {realsense_idx}") # type: ignore
 
         self.logger.debug(f"Pose_idx: {idx}")
         self.logger.debug(f"scan_idx: {scan_idx}")
-        self.logger.debug(f"zed_idx: {zed_left_idx}") # type: ignore
-        self.logger.debug(f"rs_idx: {realsense_idx}") # type: ignore
+        
         # input()
         return_list = []
 
@@ -231,36 +232,29 @@ class MIPT_Campus_Dataset:
             poses = [[float(x) for x in line.split(' ')] for line in f.readlines()]
 
         self.poses = []
+        self.poses_t = [] # only translation
         self.poses_ts = []
         for t, x, y, z, qx, qy, qz, qw in poses:
             self.poses_ts.append(t)
             P = build_matrix(x, y, z, (qw, qx, qy, qz))
             self.poses.append(P)
+            self.poses_t.append(np.asarray((x, y, z)))
         
         self.poses_ts = np.asarray(self.poses_ts)
-        # self.poses_ts = self.poses_ts - self.poses_ts[0]
+        self.poses_t = np.asarray(self.poses_t)
 
         self.logger.warning(f"Poses ts: {self.poses_ts[:10]}")
+
+    def n_nearest_by_pose(self, idx: Union[int, np.intp], max_dist: float, without_self = True) -> np.ndarray:
+        poses_t = self.poses_t - self.poses_t[idx]
+        if without_self:
+            poses_t[idx] = np.asarray([max_dist * 3,max_dist * 3, max_dist * 3])
         
+        in_range_idx = np.all(np.logical_and([-max_dist, -max_dist, -max_dist] <= poses_t, 
+                                             poses_t <= [max_dist, max_dist, max_dist]), axis=1)
 
-
-
-    # def load_poses(self, poses_file):
-    #     def _lidar_pose_gt(poses_gt):
-    #         _tr = self.calibration["Tr"].reshape(3, 4)
-    #         tr = np.eye(4, dtype=np.float64)
-    #         tr[:3, :4] = _tr
-    #         left = np.einsum("...ij,...jk->...ik", np.linalg.inv(tr), poses_gt)
-    #         right = np.einsum("...ij,...jk->...ik", left, tr)
-    #         return right
-
-    #     poses = pd.read_csv(poses_file, sep=" ", header=None).values
-    #     n = poses.shape[0]
-    #     poses = np.concatenate(
-    #         (poses, np.zeros((n, 3), dtype=np.float32), np.ones((n, 1), dtype=np.float32)), axis=1
-    #     )
-    #     poses = poses.reshape((n, 4, 4))  # [N, 4, 4]
-    #     return _lidar_pose_gt(poses)
+        return np.asarray(range(len(self.poses_t)))[in_range_idx]
+    
     
     def load_ts(self, ts_file):
         with open(ts_file, 'r') as f:

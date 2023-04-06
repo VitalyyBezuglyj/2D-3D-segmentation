@@ -50,5 +50,5 @@ def project_scan_to_camera(
     uv[1, :] /= w
     in_image = (uv[0, :] >= 0) * (uv[0, :] < cam_res[0]) * (uv[1, :] >= 0) * (uv[1, :] < cam_res[1]) * in_image
     if return_mask:
-        return uv[:, in_image].astype(int), depths[in_image], in_image
-    return uv[:, in_image].astype(int), depths[in_image]
+        return uv[:, in_image].astype(int), depths, in_image
+    return uv[:, in_image].astype(int), depths
