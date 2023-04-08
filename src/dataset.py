@@ -42,6 +42,8 @@ class MIPT_Campus_Dataset:
         
         self._getitem_set = {'images': False,
                              'scan': True,
+                             'init_scan_labels': False, #TODO
+                             'scan_labels': False, #TODO
                              'pose': True,
                              'segmentation_masks': True}
 
@@ -150,6 +152,10 @@ class MIPT_Campus_Dataset:
         if self._getitem_set['scan']:
             return_list.append(self.scans(scan_idx))
 
+        if self._getitem_set['init_scan_labels']:
+            return_list.append(self.init_labels(idx))
+            return_list.append(self.init_uncert(idx))
+
         if self._getitem_set['images']:
             return_list.append(self.read_zed_img(zed_left_idx)) # type: ignore
             #? return_list.append(self.read_zed_img(zed_right_idx)) # type: ignore
@@ -197,7 +203,32 @@ class MIPT_Campus_Dataset:
         if idx is None:
             return None
         return self.read_point_cloud(idx, self.scan_files[idx])
-
+    
+    def _init_labels_path(self, idx):
+        return os.path.join(self.velodyne_dir, f"init_semantics/labels/labels_{idx}.label")
+    
+    def init_labels(self, idx):
+        if idx is None:
+            return None
+        labels_path = self._init_labels_path(idx)
+        self.logger.debug(f"Labels path: {labels_path}")
+        if os.path.exists(labels_path):
+            return np.fromfile(labels_path, dtype=np.int16)
+        else:
+            return None
+        
+    def _init_uncert_path(self, idx):
+        return os.path.join(self.velodyne_dir, f"init_semantics/uncert/uncert_{idx}.bin")
+    
+    def init_uncert(self, idx):
+        if idx is None:
+            return None
+        uncert_path = self._init_uncert_path(idx)
+        if os.path.exists(uncert_path):
+            return np.fromfile(uncert_path, dtype=np.float32)
+        else:
+            return None
+    
     def read_point_cloud(self, idx: int, apply_pose=False):
         points = np.fromfile(self.scan_files[idx], dtype=np.float32).reshape((-1, 4))[:, :-1]
         in_range_idx = np.all(np.logical_and(self.cfg.lidar.lower_bounds <= points, 

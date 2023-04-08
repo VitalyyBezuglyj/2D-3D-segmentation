@@ -1,26 +1,21 @@
 # general
-logging_level: 'DEBUG' # 10 #
+logging_level: 'INFO' # 10 #
+
+test_option: ""
 
 ---
 #Data info
 
 dataset_root_dir: '/home/kowalski/data/MIPT_campus/'
 sequence: '2023-02-21-07-28-58-day'
-
-img_filenames_path: '/home/kowalski/data/MIPT_campus/unpacked_2023-02-21-07-28-58-day/zed_node_left_image_rect_color_compressed/filenames.txt'
-img_dir_path: '/home/kowalski/data/MIPT_campus/unpacked_2023-02-21-07-28-58-day/zed_node_left_image_rect_color_compressed/images/demo'
-img_ts_path: '/home/kowalski/data/MIPT_campus/unpacked_2023-02-21-07-28-58-day/zed_node_left_image_rect_color_compressed/timestamps.txt'
-
-cloud_filenames_path: '/home/kowalski/data/MIPT_campus/unpacked_2023-02-21-07-28-58-day/velodyne_points/filenames.txt'
-cloud_dir_path: '/home/kowalski/data/MIPT_campus/unpacked_2023-02-21-07-28-58-day/velodyne_points/clouds/demo'
-cloud_ts_path: '/home/kowalski/data/MIPT_campus/unpacked_2023-02-21-07-28-58-day/velodyne_points/timestamps.txt'
-
-segmask_dir_path: '/home/kowalski/data/MIPT_campus/unpacked_2023-02-21-07-28-58-day/zed_node_left_image_rect_color_compressed/anno_demo'
-
-tf_path: ''
-
-
 segmentation_config: '/home/kowalski/data/MIPT_campus/anno_config.json'
+
+semantics:
+  initial_out_dir: 'init_semantics'
+  overwrite_existing_data: False
+---
+# Semantics 
+semantic_uncert_range: 5.
 
 ---
 

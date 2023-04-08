@@ -1,3 +1,4 @@
+import os
 import yaml
 import numpy as np
 import matplotlib.pyplot as plt
@@ -70,5 +71,5 @@ def transform_xyz(T_a_b, xyz):
     xyz1_a = np.vstack([xyz.T, np.ones((1, xyz.shape[0]))])
     # xyz in b frame
     xyz1_b = np.dot(T_a_b, xyz1_a)
-    xyz_b = np.ascontiguousarray((xyz1_b[:3]).T)
+    xyz_b = np.ascontiguousarray((xyz1_b[:3]).T) #type: ignore
     return xyz_b

@@ -1,5 +1,7 @@
 from typing import Tuple, Optional, Union
 import logging
+import os
+import shutil
 import multiprocessing
 
 
@@ -186,7 +188,58 @@ def segment_pointcloud_w_semantic_uncert(dataset: MIPT_Campus_Dataset,
     logger.debug(f"Weights > 0: {len(scan_weights)}")
 
     # cloudshow(m_scan, np.asarray(scan_weights > 0.2, dtype=np.uint16), colorscale=simple_colors)
-    cloudshow(target_scan, batch_labels[:len(target_scan)], labels=["Uncert: "+str(x) for x in scan_weights])
-    input()
+    # cloudshow(target_scan, batch_labels[:len(target_scan)], labels=["Uncert: "+str(x) for x in scan_weights])
+    # input()
     return batch_labels[:len(target_scan)], scan_weights
+    
+def dataset_segmentation(dataset: MIPT_Campus_Dataset, 
+                         overwrite=cfg.semantics.overwrite_existing_data) -> None: # type: ignore
+    
+    pbar = tqdm(total=len(dataset), desc="Segmenting scans..") #tqdm(total=len(dataset))
+    i = 0
 
+    out_dir = os.path.join(cfg.dataset_root_dir, # type: ignore
+                           'unpacked_'+ cfg.sequence, # type: ignore
+                           'velodyne_points',
+                           cfg.semantics.initial_out_dir) # type: ignore
+    
+    # env_setup
+    if os.path.exists(out_dir):
+        if overwrite:
+            logger.warning("Remove existing initial segmentation data!")
+            shutil.rmtree(out_dir)
+        else:
+            logger.warning("Dataset segmentation data already exists! Skipping this step. If you want to ovewrite existing data, please, call func with corresponding flag.")
+            return
+        
+    os.makedirs(out_dir)
+    os.makedirs(os.path.join(out_dir, "labels"), exist_ok=True, mode=0o775)
+    os.makedirs(os.path.join(out_dir, "uncert"), exist_ok=True, mode=0o775)
+
+    for m_pose, m_scan, _, _ in dataset: #zed_img, rs_img, , scan, zed_mask, realsense_mask
+        # if i < 149:
+        #     i+=1
+        #     pbar.update(1)
+        #     continue
+        if i == 150:
+            break
+        if m_scan is None:
+            pbar.update(1)
+            i+=1
+            logging.warning("Skip pose")
+            continue
+
+        # m_scan_t = transform_xyz(m_pose, m_scan)
+        scan_labels, scan_uncert = segment_pointcloud_w_semantic_uncert(dataset, 
+                                                                        i, 
+                                                                        estimation_range=cfg.semantic_uncert_range) # type: ignore
+        
+        scan_labels.tofile(os.path.join(out_dir, "labels", f"labels_{i}.label")) # np.int16 shape (n,)
+        scan_uncert.tofile(os.path.join(out_dir, "uncert", f"uncert_{i}.bin")) # np.float32 shape (n,)
+
+        pbar.update(1)
+        i+=1
+
+        logger.info("Succefully segment dataset!")
+
+        

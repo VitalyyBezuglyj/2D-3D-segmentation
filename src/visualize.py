@@ -50,7 +50,7 @@ def cloudshow(cloud, colors=None, save_path=None, colorscale=None, labels=None):
     if colored:
         label=[STUFF_CLASSES[idx] for idx in colors]
         if labels is not None:
-            label = [l_1 + '\n' + l_2 for l_1, l_2 in zip(label, labels)]
+            label = [l_1 + '\n' + str(l_2) for l_1, l_2 in zip(label, labels)] # type: ignore
 
     fig = go.Figure(data=[go.Scatter3d(
         x=cloud[:,0],

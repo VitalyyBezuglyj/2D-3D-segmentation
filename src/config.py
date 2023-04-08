@@ -27,6 +27,22 @@ class Config:
     def __repr__(self):
         return self.__str__()
 
+def add_args_from_cfg(parser: argparse.ArgumentParser, cfg: Config, prefix=''):
+    for item in cfg: # type: ignore
+        if not isinstance(cfg[item], list) and not isinstance(cfg[item], dict): # type: ignore
+            if isinstance(cfg[item], bool): # type: ignore
+                if len(prefix) > 0:
+                    parser.add_argument("--" + prefix + '.' + item, type=ast.literal_eval, default=cfg[item]) # type: ignore
+                else:
+                    parser.add_argument("--" + item, type=ast.literal_eval, default=cfg[item]) # type: ignore
+            else:
+                if len(prefix) > 0:
+                    parser.add_argument("--" + prefix + '.' + item, type=type(cfg[item]), default=cfg[item]) # type: ignore
+                else:
+                    parser.add_argument("--" + item, type=type(cfg[item]), default=cfg[item]) # type: ignore
+        elif isinstance(cfg[item], dict): # type: ignore
+            add_args_from_cfg(parser, cfg[item], prefix=item) # type: ignore
+    
 
 def parse_cli_to_yaml(parser, cfg, helper=None, choices=None, cfg_path="default_config.yaml"):
     """
@@ -40,12 +56,7 @@ def parse_cli_to_yaml(parser, cfg, helper=None, choices=None, cfg_path="default_
     """
     parser = argparse.ArgumentParser(description="[REPLACE THIS at config.py]",
                                      parents=[parser])
-    for item in cfg:
-        if not isinstance(cfg[item], list) and not isinstance(cfg[item], dict):
-            if isinstance(cfg[item], bool):
-                parser.add_argument("--" + item, type=ast.literal_eval, default=cfg[item])
-            else:
-                parser.add_argument("--" + item, type=type(cfg[item]), default=cfg[item])
+    add_args_from_cfg(parser, cfg)
     args = parser.parse_args()
     return args
 
@@ -108,7 +119,13 @@ def merge(args, cfg):
     """
     args_var = vars(args)
     for item in args_var:
-        cfg[item] = args_var[item]
+        arr = item.split('.')
+        if len(arr) == 2:
+            cfg[arr[0]][arr[1]] = args_var[item]
+        elif len(arr) == 1:
+            cfg[item] = args_var[item]
+        else:
+            raise ValueError("Too complex config! Support only 2 level args!")
     return cfg
 
 
@@ -120,7 +137,7 @@ def get_config():
     current_dir = os.path.dirname(os.path.abspath(__file__))
     parser.add_argument("--config_path", type=str, default=_config_path,
                         help="Config file path")
-    path_args, _ = parser.parse_known_args()
+    path_args, _ = parser.parse_known_args() #type: ignore
     config = parse_yaml2(path_args.config_path)
     args = parse_cli_to_yaml(parser=parser, cfg=config, cfg_path=path_args.config_path)
     final_config = merge(args, config)
