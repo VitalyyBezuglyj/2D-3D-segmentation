@@ -101,7 +101,7 @@ class MIPT_Campus_Dataset:
         pose_idx = self.align_by_ts(idx, self.poses_ts) # type: ignore
 
         if self._getitem_set['images'] or self._getitem_set['segmentation_masks']:
-            realsense_idx = self.align_by_ts(idx, self.realsense_ts)
+            # realsense_idx = self.align_by_ts(idx, self.realsense_ts)
             zed_left_idx =  self.align_by_ts(idx, self.zed_left_ts)
             zed_right_idx = self.align_by_ts(idx, self.zed_right_ts)
         
@@ -120,7 +120,7 @@ class MIPT_Campus_Dataset:
         
         if self._getitem_set['segmentation_masks']:
             return_list.append(self.read_zed_mask(zed_left_idx)) # type: ignore
-            #? return_list.append(return_list.append(self.read_zed_mask(zed_left_idx))) # type: ignore
+            return_list.append(return_list.append(self.read_zed_mask(zed_left_idx))) # type: ignore
             return_list.append( self.read_realsense_mask(zed_left_idx)) # type: ignore
 
         return tuple(return_list)
@@ -205,7 +205,7 @@ class MIPT_Campus_Dataset:
         return self.read_point_cloud(idx, self.scan_files[idx])
     
     def _init_labels_path(self, idx):
-        return os.path.join(self.velodyne_dir, f"init_semantics/labels/labels_{idx}.label")
+        return os.path.join(self.velodyne_dir, f"init_semantics_conf/labels/labels_{idx}.label")
     
     def init_labels(self, idx):
         if idx is None:
@@ -215,10 +215,11 @@ class MIPT_Campus_Dataset:
         if os.path.exists(labels_path):
             return np.fromfile(labels_path, dtype=np.int16)
         else:
+            self.logger.debug(f"File {labels_path} not found!")
             return None
         
     def _init_uncert_path(self, idx):
-        return os.path.join(self.velodyne_dir, f"init_semantics/uncert/uncert_{idx}.bin")
+        return os.path.join(self.velodyne_dir, f"init_semantics_conf/uncert/uncert_{idx}.bin")
     
     def init_uncert(self, idx):
         if idx is None:
@@ -227,6 +228,7 @@ class MIPT_Campus_Dataset:
         if os.path.exists(uncert_path):
             return np.fromfile(uncert_path, dtype=np.float32)
         else:
+            self.logger.debug(f"File {uncert_path} not found!")
             return None
     
     def read_point_cloud(self, idx: int, apply_pose=False):

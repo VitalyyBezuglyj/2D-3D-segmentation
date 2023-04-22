@@ -6,8 +6,8 @@ test_option: ""
 ---
 #Data info
 
-dataset_root_dir: '/home/kowalski/data/MIPT_campus/'
-sequence: '2023-02-21-07-28-58-day'
+dataset_root_dir: '/home/kowalski/data/MIPT_campus/winter-night'
+sequence: '15-03-23-night'
 segmentation_config: '/home/kowalski/data/MIPT_campus/anno_config.json'
 
 semantics:

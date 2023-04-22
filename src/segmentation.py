@@ -8,11 +8,12 @@ import multiprocessing
 import numpy as np
 from tqdm import tqdm
 from sklearn.neighbors import RadiusNeighborsClassifier
+from sklearn.utils import gen_batches
 
 from src.config import get_config, Config
 from src.projection import project_scan_to_camera
 from src.dataset import MIPT_Campus_Dataset
-from src.utils import get_points_labels_by_mask, read_calib_file, transform_xyz
+from src.utils import get_points_labels_by_mask, read_calib_file, transform_xyz, fuse_batch, inverse_gaussian_kernel
 from src.visualize import cloudshow
 
 cfg = get_config()
@@ -71,7 +72,7 @@ def segment_pointcloud_batch(batch: list) -> Tuple[np.ndarray, np.ndarray, np.nd
 
     for pose, scan, zed_mask, realsense_mask in tqdm(batch, "batch processing"):
         if scan is None:
-            logging.warning("Skip pose from batch!")
+            logger.warning("Skip pose from batch!")
             continue
         scan_labels = np.zeros(len(scan), dtype=np.uint16)
 
@@ -83,7 +84,6 @@ def segment_pointcloud_batch(batch: list) -> Tuple[np.ndarray, np.ndarray, np.nd
         if realsense_mask is not None:
             scan_labels, unct, rs_in_frame = segment_pointcloud(scan, realsense_mask, cfg.back_cam, scan_labels) # type: ignore
 
-
         scan_t = transform_xyz(pose, scan)
         scan_batch = np.append(scan_batch, scan_t, axis=0)
         batch_labels = np.append(batch_labels, scan_labels, axis=0)
@@ -94,7 +94,7 @@ def segment_pointcloud_batch(batch: list) -> Tuple[np.ndarray, np.ndarray, np.nd
 
     return scan_batch, batch_labels, batch_uncert
 
-def segment_pointcloud_w_semantic_uncert(dataset: MIPT_Campus_Dataset,
+def _segment_pointcloud_w_semantic_uncert(dataset: MIPT_Campus_Dataset,
                                 target_scan_id: Union[int, np.intp],
                                 estimation_range: float) -> Tuple[np.ndarray, np.ndarray]:
     
@@ -118,6 +118,7 @@ def segment_pointcloud_w_semantic_uncert(dataset: MIPT_Campus_Dataset,
     
     batch_idx = dataset.n_nearest_by_pose(target_scan_id, max_dist=estimation_range)
     logger.debug(f"N nearest: {batch_idx}")
+
     # input()
     batch = [dataset[_i] for _i in batch_idx]
 
@@ -125,7 +126,6 @@ def segment_pointcloud_w_semantic_uncert(dataset: MIPT_Campus_Dataset,
 
     scan_weights = np.zeros(len(target_scan), dtype=np.float32)
     target_scan_t = transform_xyz(target_pose, target_scan)
-        
     batch_scans, batch_labels, batch_uncert = segment_pointcloud_batch(batch=batch)
     
     #Check available cpu's
@@ -170,7 +170,7 @@ def segment_pointcloud_w_semantic_uncert(dataset: MIPT_Campus_Dataset,
 
 
         # moving objects
-        temporal_consist = float(np.sum(n_ids >= len(target_scan)))/len(n_ids)
+        temporal_consist = float(np.sum(n_ids >= len(target_scan))) / len(n_ids)
         logger.debug(f"temporal_consist: {temporal_consist}")
 
 
@@ -191,6 +191,137 @@ def segment_pointcloud_w_semantic_uncert(dataset: MIPT_Campus_Dataset,
     # cloudshow(target_scan, batch_labels[:len(target_scan)], labels=["Uncert: "+str(x) for x in scan_weights])
     # input()
     return batch_labels[:len(target_scan)], scan_weights
+
+def segment_pointcloud_w_semantic_uncert(dataset: MIPT_Campus_Dataset,
+                                target_scan_id: Union[int, np.intp],
+                                estimation_range: float) -> Tuple[np.ndarray, np.ndarray]:
+    
+    """
+    Segments pointcloud and estimates labels uncertanies comparing them with other scans in some range.
+
+        Args:
+            dataset (MIPT_Campus_Dataset): dataset instance for accessing other scans
+
+            target_scan_id (int OR np.intp): keypose id for segmentation.
+
+            estimation_range (float): the range within which the key poses (robot poses) will be found, to assess the confidence in the markup of the current scan. 
+
+            Note: it's not range for points, it range for robot poses. So, points range will be: estimation_range + lidar_range.
+        Returns:
+            target_scan_labels (np.ndarray): Array of labels for points (shape (n,), dtype=np.uint16.
+            labels uncertanities (np.ndarray): Array of uncertanities for labels (shape (n,), dtype=np.float32). Calculated as 1/depth, where depth is the distance from the optical center of the camera to the point.
+    """
+    
+    target_pose, target_scan, _, _ = dataset[target_scan_id]
+    
+    batch_idx = dataset.n_nearest_by_pose(target_scan_id, max_dist=estimation_range)
+    logger.debug(f"N nearest: {batch_idx}")
+
+    # input()
+    batch = [dataset[_i] for _i in batch_idx]
+
+    batch.insert(0, dataset[target_scan_id])
+
+    target_scan_t = transform_xyz(target_pose, target_scan)
+    batch_scans, batch_labels, batch_uncert = segment_pointcloud_batch(batch=batch)
+    
+    scan_weights = estimate_semantic_conf(dataset[target_scan_id], batch_scans, batch_labels, batch_uncert)
+    
+    return batch_labels[:len(target_scan)], scan_weights
+
+
+def estimate_semantic_conf(target_scan_bundle: Tuple, 
+                           batch_scans:np.ndarray, 
+                           batch_labels:np.ndarray,
+                           batch_uncert: Optional[np.ndarray] = None,
+                           ) -> np.ndarray:
+    
+    """
+    Segments pointcloud and estimates labels uncertanies comparing them with other scans in some range.
+
+        Args:
+            dataset (MIPT_Campus_Dataset): dataset instance for accessing other scans
+
+            target_scan_id (int OR np.intp): keypose id for segmentation.
+
+            estimation_range (float): the range within which the key poses (robot poses) will be found, to assess the confidence in the markup of the current scan. 
+
+            Note: it's not range for points, it range for robot poses. So, points range will be: estimation_range + lidar_range.
+        Returns:
+            target_scan_labels (np.ndarray): Array of labels for points (shape (n,), dtype=np.uint16.
+            labels uncertanities (np.ndarray): Array of uncertanities for labels (shape (n,), dtype=np.float32). Calculated as 1/depth, where depth is the distance from the optical center of the camera to the point.
+    """
+    
+    target_pose, target_scan, _, _ = target_scan_bundle
+
+    if batch_uncert is None:
+        batch_uncert = np.ones(len(target_scan), dtype=np.float32)
+
+    scan_weights = np.zeros(len(target_scan), dtype=np.float32)
+    target_scan_t = transform_xyz(target_pose, target_scan)
+    
+    #Check available cpu's
+    cpus = multiprocessing.cpu_count() - 1
+    logger.info(f"Use {cpus} cpus for KD-tree")    
+
+    # Adopt to labels
+    batch_uncert[batch_labels == 0] = 0 # Unknown
+    batch_uncert[batch_labels == 28] = 0 # Sky
+    
+    #Build KD-tree on top of the source data
+    nn = RadiusNeighborsClassifier(algorithm='kd_tree', radius=0.3, weights='distance', outlier_label=0, n_jobs=cpus) # type: ignore
+    nn.fit(batch_scans, [int(l) for l in batch_labels])
+    r_neigh_dist, r_neigh_ids = nn.radius_neighbors(target_scan_t, radius=0.3, return_distance=True, sort_results=True)
+
+    for m_id, (n_dists, n_ids) in tqdm(enumerate(zip(r_neigh_dist, r_neigh_ids)), 'init semantic weights'):
+            
+        # remove target point itself to avoid zero divisions
+        n_dists = n_dists[1:]
+        n_ids = n_ids[1:]
+
+        if len(n_ids) == 0:
+            continue    
+        
+        # semantic consistency
+        neighbours_dist_weights = 1./np.asarray(n_dists)
+        sensor_dist_weights = batch_uncert[n_ids]
+            
+        label_weights = neighbours_dist_weights * sensor_dist_weights
+
+        m_label = batch_labels[m_id]
+        if m_label == 0:
+            scan_weights[m_id] = 0
+            continue
+        n_labels = batch_labels[n_ids]
+
+        if sum(n_labels) == 0:
+            ratio_my_labels = batch_uncert[m_id]
+        else:
+            ratio_my_labels = np.sum(np.asarray(n_labels == m_label, dtype=np.int32) * label_weights) /float(len(n_labels))
+
+
+        # moving objects #TODO Move to separate func
+        # temporal_consist = float(np.sum(n_ids >= len(target_scan)))/len(n_ids)
+        # logger.debug(f"temporal_consist: {temporal_consist}")
+
+
+        scan_weights[m_id] = ratio_my_labels
+        # logger.debug(f"scan_weights[m_id]: {scan_weights[m_id]}")
+
+
+    # Normalize
+    max_w = max(scan_weights)
+    min_w = min(scan_weights)
+    if max_w - min_w != 0:
+        scan_weights -= min_w
+        scan_weights /= (max_w - min_w)
+
+    logger.debug(f"Weights > 0: {len(scan_weights)}")
+
+    # cloudshow(m_scan, np.asarray(scan_weights > 0.2, dtype=np.uint16), colorscale=simple_colors)
+    # cloudshow(target_scan, batch_labels[:len(target_scan)], labels=["Uncert: "+str(x) for x in scan_weights])
+    # input()
+    return scan_weights
     
 def dataset_segmentation(dataset: MIPT_Campus_Dataset, 
                          overwrite=cfg.semantics.overwrite_existing_data) -> None: # type: ignore
@@ -226,7 +357,7 @@ def dataset_segmentation(dataset: MIPT_Campus_Dataset,
         if m_scan is None:
             pbar.update(1)
             i+=1
-            logging.warning("Skip pose")
+            logging.warning("Skip pose {i}")
             continue
 
         # m_scan_t = transform_xyz(m_pose, m_scan)
@@ -240,6 +371,85 @@ def dataset_segmentation(dataset: MIPT_Campus_Dataset,
         pbar.update(1)
         i+=1
 
-        logger.info("Succefully segment dataset!")
+    logger.info("Dataset succesfully segmented!")
 
-        
+def refine_segmentation(dataset: MIPT_Campus_Dataset,
+                        target_scan_id: Union[int, np.intp],
+                        estimation_range: float) -> Tuple[np.ndarray, np.ndarray]:
+    
+    """
+    Segments pointcloud and estimates labels uncertanies comparing them with other scans in some range.
+
+        Args:
+            dataset (MIPT_Campus_Dataset): dataset instance for accessing other scans
+
+            target_scan_id (int OR np.intp): keypose id for segmentation.
+
+            estimation_range (float): the range within which the key poses (robot poses) will be found, to assess the confidence in the markup of the current scan. 
+
+            Note: it's not range for points, it range for robot poses. So, points range will be: estimation_range + lidar_range.
+        Returns:
+            target_scan_labels (np.ndarray): Array of labels for points (shape (n,), dtype=np.uint16.
+            labels uncertanities (np.ndarray): Array of uncertanities for labels (shape (n,), dtype=np.float32). Calculated as 1/depth, where depth is the distance from the optical center of the camera to the point.
+    """
+    
+    target_pose, target_scan, _, _ = dataset[target_scan_id]
+    
+    batch_idx = dataset.n_nearest_by_pose(target_scan_id, max_dist=estimation_range)
+    logger.debug(f"N nearest: {batch_idx}")
+
+    dataset._getitem_set['segmentation_masks'] = False
+    dataset._getitem_set['init_scan_labels'] = True
+
+
+    # input()
+    batch = [dataset[_i] for _i in batch_idx]
+
+    batch.insert(0, dataset[target_scan_id])
+
+    target_scan_t = transform_xyz(target_pose, target_scan)
+
+    batch_scans, batch_labels, batch_uncert = fuse_batch(batch=batch)
+
+    #!
+    target_labels = batch_labels[:len(target_scan)]
+    
+    #Check available cpu's
+    cpus = multiprocessing.cpu_count() - 1
+    logger.info(f"Use {cpus} cpus for KD-tree")    
+
+    # Adopt to labels
+    batch_uncert[batch_labels == 0] = 0 # Unknown
+    batch_uncert[batch_labels == 28] = 0 # Sky
+
+    #? to_refine_idx = np.asarray(batch_uncert[:len(target_scan)] < 0.05)
+    #? fine_idx = np.asarray(batch_uncert >= 0.05)
+    to_refine_idx = np.asarray(target_labels == 0)
+    fine_idx = np.asarray(batch_labels != 0)
+    logger.debug(f"To refine idxs: {np.unique(to_refine_idx, return_counts=True)}")
+    logger.debug(f"Fine idxs: {np.unique(fine_idx, return_counts=True)}")
+    # input()
+    # colors = batch_labels[:len(target_scan)]
+
+    # colors[batch_uncert[:len(target_scan)] < 0.05] = 0
+    # colors[batch_uncert[:len(target_scan)] > 0.05] = 1
+    # cloudshow(target_scan, colors)
+    # input()
+    
+    #Build KD-tree on top of the source data
+    nn = RadiusNeighborsClassifier(algorithm='kd_tree', radius=0.7, weights=inverse_gaussian_kernel, outlier_label=0, n_jobs=cpus) # type: ignore
+    nn.fit(batch_scans[fine_idx], [int(l) for l in batch_labels[fine_idx]])
+    logger.warning(f"Unique labels before: {np.unique(target_labels[to_refine_idx], return_counts=True)}")
+    target_labels[to_refine_idx] = nn.predict(target_scan[to_refine_idx])
+    # batches = gen_batches(len(target_scan_t), 1000)
+    # new_target_labels = np.empty((0), dtype='int16')
+    # for batch in tqdm(batches, "Step-by-step kNN"):
+    #     target_scan_batch = target_scan_t[batch]
+    #     to_refine_batch = to_refine_idx[batch]
+    #     target_labels_batch = target_labels[batch]
+    #     target_labels_batch[to_refine_batch] = nn.predict(target_scan_batch[to_refine_batch])
+    #     new_target_labels = np.append(new_target_labels, target_labels_batch, axis=0)
+
+    scan_weights = np.empty(target_labels.shape)#estimate_semantic_conf(dataset[target_scan_id], batch_scans, batch_labels, batch_uncert)
+
+    return target_labels, scan_weights
