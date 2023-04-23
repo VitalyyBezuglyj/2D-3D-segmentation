@@ -41,7 +41,11 @@ def add_args_from_cfg(parser: argparse.ArgumentParser, cfg: Config, prefix=''):
                 else:
                     parser.add_argument("--" + item, type=type(cfg[item]), default=cfg[item]) # type: ignore
         elif isinstance(cfg[item], dict): # type: ignore
-            add_args_from_cfg(parser, cfg[item], prefix=item) # type: ignore
+            if len(prefix) > 0:
+                new_prefix = f"{prefix}.{item}"
+            else:  
+                new_prefix = item
+            add_args_from_cfg(parser, cfg[item], prefix=new_prefix) # type: ignore
     
 
 def parse_cli_to_yaml(parser, cfg, helper=None, choices=None, cfg_path="default_config.yaml"):
@@ -120,11 +124,16 @@ def merge(args, cfg):
     args_var = vars(args)
     for item in args_var:
         arr = item.split('.')
-        if len(arr) == 2:
+        if len(arr) == 3:
+            # print(arr)
+            # input()
+            cfg[arr[0]][arr[1]][arr[2]] = args_var[item]
+        elif len(arr) == 2:
             cfg[arr[0]][arr[1]] = args_var[item]
         elif len(arr) == 1:
             cfg[item] = args_var[item]
         else:
+            print(arr)
             raise ValueError("Too complex config! Support only 2 level args!")
     return cfg
 

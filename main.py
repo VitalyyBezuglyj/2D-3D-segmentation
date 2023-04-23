@@ -14,6 +14,7 @@ from src.config import get_config, Config
 from src.dataset import MIPT_Campus_Dataset
 from src.visualize import save_colored_cloud, cloudshow
 from src.utils import transform_xyz
+from src.mesh import SemanticMeshBuilder
 from src.segmentation import segment_pointcloud_w_semantic_uncert, dataset_segmentation, refine_segmentation
 
 
@@ -44,7 +45,8 @@ def main(cfg: Config):
     batch_point_nums = []
 
 
-    vdb_volume = VDBVolume(voxel_size=0.15, sdf_trunc=0.3, space_carving=False)
+    # vdb_volume = VDBVolume(voxel_size=0.15, sdf_trunc=0.3, space_carving=False)
+    mesh_builder = SemanticMeshBuilder(cfg)
 
     pbar = tqdm(total=len(dataset), desc="Segmenting scans..") #tqdm(total=len(dataset))
     i = 0
@@ -53,7 +55,7 @@ def main(cfg: Config):
         #     i+=1
         #     pbar.update(1)
         #     continue
-        if i == 100: #! MAX 150
+        if i == 150: #! MAX 150
             break
         if scan is None:
             pbar.update(1)
@@ -69,18 +71,14 @@ def main(cfg: Config):
         logger.debug(f"Scan_labels: {scan_uncert.shape}")
 
         scan_t = transform_xyz(pose, scan)
-        vdb_volume.integrate(scan_t.astype(np.float64), pose)
+        mesh_builder.integrate_scan(scan_t, pose, scan_labels)
+        #? vdb_volume.integrate(scan_t.astype(np.float64), pose)
         # scan_labels, scan_uncert = segment_pointcloud_w_semantic_uncert(dataset, i, estimation_range=5.)
 
         map = np.append(map, scan_t, axis=0)
         # logger.debug(f"Labels shape: {map_labels.shape} labels shape: {batch_labels.shape}")
         map_labels = np.append(map_labels, target_labels, axis=0)
-        #? map_labels = np.append(map_labels, np.asarray(scan_uncert > 0.7, dtype=np.uint16), axis=0)
-        # cloudshow(scan, np.asarray(scan_uncert > 0.05, dtype=np.int16) + np.asarray(scan_uncert > 0.1, dtype=np.int16))
-        # cloudshow(scan, scan_labels, labels=["Uncert: "+str(x) for x in scan_uncert])
-        # cloudshow(scan, scan_labels)
-        # cloudshow(scan, target_labels, labels=["Uncert: "+str(x) for x in target_weights])
-        # input()
+
 
         pbar.update(1)
         i+=1
@@ -88,10 +86,11 @@ def main(cfg: Config):
     # cloudshow(map, map_labels)
     save_colored_cloud(map, map_labels, save_path='output/test_night.pcd')
 
-    vertices, triangles = vdb_volume.extract_triangle_mesh(fill_holes=True, min_weight=3.0)
-    logger.info(f"V: {len(vertices)} T: {len(triangles)}")
-    mesh = trimesh.Trimesh(vertices=vertices, faces=triangles)
-    trimesh.exchange.export.export_mesh(mesh, 'output/test_mesh.ply', 'ply') #type: ignore
+    # vertices, triangles = vdb_volume.extract_triangle_mesh(fill_holes=True, min_weight=3.0)
+    # logger.info(f"V: {len(vertices)} T: {len(triangles)}")
+    # mesh = trimesh.Trimesh(vertices=vertices, faces=triangles)
+    # trimesh.exchange.export.export_mesh(mesh, 'output/test_mesh.ply', 'ply') #type: ignore
+    mesh_builder.export_mesh('output/test_semantic_mesh.ply')
 
     logger.info('Done!')
 
