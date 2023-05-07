@@ -25,20 +25,28 @@ class MIPT_Campus_Dataset:
         self.logger.setLevel(self.cfg.logging_level)
 
         self.zed_left_dir = os.path.join(self.cfg.dataset_root_dir,
-                                         'unpacked_'+ self.cfg.sequence, 
-                                         'zed_node_left_image_rect_color_compressed')
+                                         'data',
+                                         self.cfg.sequence, 
+                                         'front_left')
+        self.logger.debug(f"zed_left_dir: {self.zed_left_dir}")
         
         self.zed_right_dir = os.path.join(self.cfg.dataset_root_dir, 
-                                          'unpacked_'+ self.cfg.sequence, 
-                                          'zed_node_right_image_rect_color_compressed')
+                                          'data',
+                                          self.cfg.sequence, 
+                                          'front_right')
+        self.logger.debug(f"zed_right_dir: {self.zed_right_dir}")
         
         self.realsense_dir = os.path.join(self.cfg.dataset_root_dir, 
-                                          'unpacked_realsense_'+ self.cfg.sequence, 
-                                          'realsense_back_color_image_raw_compressed')
+                                          'data',
+                                          self.cfg.sequence, 
+                                          'back_left')
+        self.logger.debug(f"realsense_dir: {self.realsense_dir}")
         
         self.velodyne_dir = os.path.join(self.cfg.dataset_root_dir, 
-                                         'unpacked_'+ self.cfg.sequence, 
-                                         'velodyne_points')
+                                         'data',
+                                         self.cfg.sequence, 
+                                         'velodyne')
+        self.logger.debug(f"velodyne_dir: {self.velodyne_dir}")
         
         self._getitem_set = {'images': False,
                              'scan': True,
@@ -53,16 +61,17 @@ class MIPT_Campus_Dataset:
         #? self.realsense_calibration = read_calib_file(os.path.join(self.cfg.dataset_root_dir, 
         #?                                                                "realsense_calib.yml"))
 
-        self.load_poses(os.path.join(self.cfg.dataset_root_dir, 
-                                     self.cfg.sequence + '_lol_map', 
+        self.load_poses(os.path.join(self.cfg.dataset_root_dir,
+                                     'data',
+                                     self.cfg.sequence, 
                                      'gt_poses.tum'))
 
-        self.zed_left_ts = self.load_ts(os.path.join(self.zed_left_dir, "timestamps_demo.txt"))
+        self.zed_left_ts = self.load_ts(os.path.join(self.zed_left_dir, "timestamps.txt"))
         self.logger.debug(f"Zed ts {self.zed_left_ts.shape}")
 
-        self.zed_right_ts = self.load_ts(os.path.join(self.zed_right_dir, "timestamps_demo.txt"))
-        self.realsense_ts = self.load_ts(os.path.join(self.realsense_dir, "timestamps_demo.txt"))
-        self.scan_ts = self.load_ts(os.path.join(self.velodyne_dir, "timestamps_demo.txt"))
+        self.zed_right_ts = self.load_ts(os.path.join(self.zed_right_dir, "timestamps.txt"))
+        self.realsense_ts = self.load_ts(os.path.join(self.realsense_dir, "timestamps.txt"))
+        self.scan_ts = self.load_ts(os.path.join(self.velodyne_dir, "timestamps.txt"))
 
         self.zed_left_files = sorted(glob.glob(self.zed_left_dir + "/images/*.png"))
         self.logger.debug(f"Found {len(self.zed_left_files)} Zed left images")
@@ -146,25 +155,41 @@ class MIPT_Campus_Dataset:
         # input()
         return_list = []
 
-        if self._getitem_set['pose']:
-            return_list.append(self.poses[idx])
+        try:
+            if self._getitem_set['pose']:
+                return_list.append(self.poses[idx])
+        except Exception as e:
+            self.logger.error(f"Get pose exception: {e}")
         
-        if self._getitem_set['scan']:
-            return_list.append(self.scans(scan_idx))
+        try:
+            if self._getitem_set['scan']:
+                scan = self.scans(scan_idx)
+                return_list.append(scan)
+        except Exception as e:
+            self.logger.error(f"Get scan exception: {e}")
 
-        if self._getitem_set['init_scan_labels']:
-            return_list.append(self.init_labels(idx))
-            return_list.append(self.init_uncert(idx))
+        try:
+            if self._getitem_set['init_scan_labels']:
+                return_list.append(self.init_labels(idx))
+                return_list.append(self.init_uncert(idx))
+        except Exception as e:
+            self.logger.error(f"Get scan labels exception: {e}")
 
-        if self._getitem_set['images']:
-            return_list.append(self.read_zed_img(zed_left_idx)) # type: ignore
-            #? return_list.append(self.read_zed_img(zed_right_idx)) # type: ignore
-            return_list.append(self.read_realsense_img(realsense_idx)) # type: ignore
+        try:
+            if self._getitem_set['images']:
+                return_list.append(self.read_zed_img(zed_left_idx)) # type: ignore
+                #? return_list.append(self.read_zed_img(zed_right_idx)) # type: ignore
+                return_list.append(self.read_realsense_img(realsense_idx)) # type: ignore
+        except Exception as e:
+            self.logger.error(f"Get images exception: {e}")
         
-        if self._getitem_set['segmentation_masks']:
-            return_list.append(self.read_zed_mask(zed_left_idx)) # type: ignore
-            #? return_list.append(return_list.append(self.read_zed_mask(zed_left_idx))) # type: ignore
-            return_list.append( self.read_realsense_mask(realsense_idx)) # type: ignore
+        try:
+            if self._getitem_set['segmentation_masks']:
+                return_list.append(self.read_zed_mask(zed_left_idx)) # type: ignore
+                #? return_list.append(return_list.append(self.read_zed_mask(zed_left_idx))) # type: ignore
+                return_list.append( self.read_realsense_mask(realsense_idx)) # type: ignore
+        except Exception as e:
+            self.logger.error(f"Get semantic masks exception: {e}")
 
         return tuple(return_list)
 

@@ -2,6 +2,8 @@
 
 import cv2
 import json
+import logging
+
 import numpy as np
 import open3d as o3d
 import matplotlib as mpl
@@ -16,6 +18,8 @@ config = get_config()
 # from src.config import get_config_notebook
 # config = get_config_notebook('/home/kowalski/3d_maps/2D-3D-segmentation/config/mipt_campus_day.yaml')
 
+logger = logging.getLogger(__name__)
+logger.setLevel(config.logging_level) # type: ignore
 from src.utils import read_calib_file
 
 from matplotlib.backends.backend_agg import FigureCanvasAgg
