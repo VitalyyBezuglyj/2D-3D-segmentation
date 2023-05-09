@@ -1,5 +1,5 @@
 # general
-logging_level: 'DEBUG' # 10 #
+logging_level: 'INFO' # 10 #
 
 test_option: ""
 

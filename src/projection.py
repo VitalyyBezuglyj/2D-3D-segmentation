@@ -8,11 +8,13 @@ import numpy as np
 
 from src.config import get_config, Config
 from src.utils import build_matrix
+from src.logger import TqdmLoggingHandler
 
 cfg = get_config()
 
 logger = logging.getLogger(__name__)
 logger.setLevel(cfg.logging_level) # type: ignore
+logger.addHandler(TqdmLoggingHandler())
 
 def project_scan_to_camera(
     points: np.ndarray, proj_matrix: np.ndarray, cam_res: Tuple[int, int], tf_config: Config, return_mask=False

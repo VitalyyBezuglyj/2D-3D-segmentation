@@ -236,3 +236,32 @@ def save_colored_cloud(scan: np.ndarray, labels: np.ndarray, save_path='output/c
     pcd.colors = o3d.utility.Vector3dVector(scan_colors)
 
     o3d.io.write_point_cloud(save_path, pcd)
+
+# sources
+def dynamic_contrast_mode_s( labels: np.ndarray)-> np.ndarray :
+    new_labels = labels.copy()
+    
+    new_labels[new_labels==1] = 5
+    new_labels[new_labels>53] = 21
+    new_labels[np.logical_and(new_labels!=21, new_labels != 5)] = 0
+
+    return new_labels
+
+# person
+def dynamic_contrast_mode_p( labels: np.ndarray)-> np.ndarray :
+    new_labels = labels.copy()
+
+    new_labels[new_labels==1] = 21
+    new_labels[new_labels!=21] = 0
+
+    return new_labels
+
+# all
+def dynamic_contrast_mode_a( labels: np.ndarray)-> np.ndarray :
+    new_labels = labels.copy()
+
+    new_labels[new_labels==1] = 21
+    new_labels[new_labels>53] = 21
+    new_labels[new_labels!=21] = 0
+
+    return new_labels

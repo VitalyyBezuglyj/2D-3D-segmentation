@@ -1,7 +1,9 @@
 import os
+import sys
 import yaml
 import logging
 from typing import Tuple
+from itertools import count
 
 import numpy as np
 from tqdm import tqdm
@@ -11,11 +13,13 @@ import quaternion
 from quaternion import as_rotation_matrix
 
 from src.config import get_config
+from src.logger import TqdmLoggingHandler
 
 cfg = get_config()
 
 logger = logging.getLogger(__name__)
 logger.setLevel(cfg.logging_level) # type: ignore
+logger.addHandler(TqdmLoggingHandler())
 
 def _gauss(x, x0=0., sigma=1.):
     return np.exp(-(x - x0) ** 2 / (2 * sigma ** 2))
@@ -90,7 +94,8 @@ def get_points_labels_by_mask(points: np.ndarray, mask: np.ndarray):
 
     labels = []
     for img_point in points.T: # points.T
-        labels.append(mask[img_point[1], img_point[0]] + 1) #? because of Unknown label added
+        labels.append(mask[img_point[1], img_point[0]] + 2) #! Magic number
+        #? Because of Unknown and Dynamic-by-Motion labels added
     
     return np.asarray(labels)
 
@@ -147,3 +152,13 @@ def fuse_batch(batch: list) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     logger.warning(f"Labels: {batch_labels.shape}")
     logger.warning(f"Confidence: {batch_uncert.shape}")
     return scan_batch, batch_labels, batch_uncert
+
+def stack_size(size=2):
+    """Get stack size for caller's frame.
+    """
+    frame = sys._getframe(size)
+
+    for size in count(size):
+        frame = frame.f_back
+        if not frame:
+            return size - 2

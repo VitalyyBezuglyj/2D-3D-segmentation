@@ -11,6 +11,7 @@ import numpy as np
 from typing import Union, Tuple
 
 from src.utils import read_calib_file, build_matrix
+from src.logger import TqdmLoggingHandler
 
 class MIPT_Campus_Dataset:
     def __init__(self, config):
@@ -23,6 +24,7 @@ class MIPT_Campus_Dataset:
 
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(self.cfg.logging_level)
+        self.logger.addHandler(TqdmLoggingHandler())
 
         self.zed_left_dir = os.path.join(self.cfg.dataset_root_dir,
                                          'data',
@@ -86,10 +88,10 @@ class MIPT_Campus_Dataset:
         self.logger.debug(f"Found {len(self.scan_files)} Scan files")
 
         #TODO Add right segmentation masks (wider viewing angle)
-        self.zed_seg_files = sorted(glob.glob(self.zed_left_dir + "/anno_demo/*.png"))
+        self.zed_seg_files = sorted(glob.glob(self.zed_left_dir + "/anno/*.png"))
         self.logger.debug(f"Found {len(self.zed_seg_files)} Zed left masks")
 
-        self.realsense_seg_files = sorted(glob.glob(self.realsense_dir + "/anno_demo/*.png"))
+        self.realsense_seg_files = sorted(glob.glob(self.realsense_dir + "/anno/*.png"))
         self.logger.debug(f"Found {len(self.zed_left_files)} Realsense masks")
 
 
@@ -187,7 +189,7 @@ class MIPT_Campus_Dataset:
             if self._getitem_set['segmentation_masks']:
                 return_list.append(self.read_zed_mask(zed_left_idx)) # type: ignore
                 #? return_list.append(return_list.append(self.read_zed_mask(zed_left_idx))) # type: ignore
-                return_list.append( self.read_realsense_mask(realsense_idx)) # type: ignore
+                return_list.append(self.read_realsense_mask(realsense_idx)) # type: ignore
         except Exception as e:
             self.logger.error(f"Get semantic masks exception: {e}")
 

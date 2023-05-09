@@ -1,6 +1,7 @@
 from typing import Tuple, Optional, Union
 import logging
 import os
+import sys
 import shutil
 import multiprocessing
 
@@ -13,13 +14,15 @@ from sklearn.utils import gen_batches
 from src.config import get_config, Config
 from src.projection import project_scan_to_camera
 from src.dataset import MIPT_Campus_Dataset
-from src.utils import get_points_labels_by_mask, read_calib_file, transform_xyz, fuse_batch, inverse_gaussian_kernel
+from src.utils import get_points_labels_by_mask, read_calib_file, transform_xyz, fuse_batch, inverse_gaussian_kernel, stack_size
 from src.visualize import cloudshow
+from src.logger import TqdmLoggingHandler
 
 cfg = get_config()
 
 logger = logging.getLogger(__name__)
 logger.setLevel(cfg.logging_level) # type: ignore
+logger.addHandler(TqdmLoggingHandler())
 
 def segment_pointcloud(points: np.ndarray,
                        seg_mask: np.ndarray,
@@ -70,7 +73,7 @@ def segment_pointcloud_batch(batch: list) -> Tuple[np.ndarray, np.ndarray, np.nd
     batch_labels = np.empty((0), dtype='int16')
     batch_uncert = np.empty((0), dtype='float32')
 
-    for pose, scan, zed_mask, realsense_mask in tqdm(batch, "batch processing"):
+    for pose, scan, zed_mask, realsense_mask in tqdm(batch, "batch processing", position=stack_size()):
         if scan is None:
             logger.warning("Skip pose from batch!")
             continue
@@ -142,7 +145,7 @@ def _segment_pointcloud_w_semantic_uncert(dataset: MIPT_Campus_Dataset,
     nn.fit(batch_scans, [int(l) for l in batch_labels])
     r_neigh_dist, r_neigh_ids = nn.radius_neighbors(target_scan_t, radius=0.3, return_distance=True, sort_results=True)
 
-    for m_id, (n_dists, n_ids) in tqdm(enumerate(zip(r_neigh_dist, r_neigh_ids)), 'init semantic weights'):
+    for m_id, (n_dists, n_ids) in tqdm(enumerate(zip(r_neigh_dist, r_neigh_ids)), 'init semantic weights', position=stack_size()):
             
         # remove target point itself to avoid zero divisions
         n_dists = n_dists[1:]
@@ -226,8 +229,18 @@ def segment_pointcloud_w_semantic_uncert(dataset: MIPT_Campus_Dataset,
     batch_scans, batch_labels, batch_uncert = segment_pointcloud_batch(batch=batch)
     
     scan_weights = estimate_semantic_conf(dataset[target_scan_id], batch_scans, batch_labels, batch_uncert)
+
+    target_labels = batch_labels[:len(target_scan)]
+    dynamic_weights = estimate_dynamic_by_motion(dataset[target_scan_id], batch_scans, batch_labels)
+
+    # Label dynamic objects
+    # TODO replace magic number with config/estimated  value
+    in_range_idx = np.logical_and(dynamic_weights < 0.01, 
+                                             target_labels==0)
+    # target_labels[dynamic_weights < 0.01] = 1 
+    target_labels[in_range_idx] = 1
     
-    return batch_labels[:len(target_scan)], scan_weights
+    return target_labels, scan_weights
 
 
 def estimate_semantic_conf(target_scan_bundle: Tuple, 
@@ -273,7 +286,7 @@ def estimate_semantic_conf(target_scan_bundle: Tuple,
     nn.fit(batch_scans, [int(l) for l in batch_labels])
     r_neigh_dist, r_neigh_ids = nn.radius_neighbors(target_scan_t, radius=0.3, return_distance=True, sort_results=True)
 
-    for m_id, (n_dists, n_ids) in tqdm(enumerate(zip(r_neigh_dist, r_neigh_ids)), 'init semantic weights'):
+    for m_id, (n_dists, n_ids) in tqdm(enumerate(zip(r_neigh_dist, r_neigh_ids)), 'init semantic weights', position=stack_size()):
             
         # remove target point itself to avoid zero divisions
         n_dists = n_dists[1:]
@@ -322,17 +335,88 @@ def estimate_semantic_conf(target_scan_bundle: Tuple,
     # cloudshow(target_scan, batch_labels[:len(target_scan)], labels=["Uncert: "+str(x) for x in scan_weights])
     # input()
     return scan_weights
+
+def estimate_dynamic_by_motion(target_scan_bundle: Tuple, 
+                               batch_scans:np.ndarray, 
+                               batch_labels:np.ndarray,
+                               ) -> np.ndarray:
+    
+    """
+    Segments the point cloud and determines which points belong to the dynamic object by the number of neighbors of this point from other scans in some range. (i.e. if there are many neighbors, the object is static, as it remains unchanged between frames and vice versa).
+
+        Args:
+            dataset (MIPT_Campus_Dataset): dataset instance for accessing other scans
+
+            target_scan_id (int OR np.intp): keypose id for segmentation.
+
+            estimation_range (float): the range within which the key poses (robot poses) will be found, to assess the confidence in the markup of the current scan. 
+
+            Note: it's not range for points, it range for robot poses. So, points range will be: estimation_range + lidar_range.
+        Returns:
+            target_scan_labels (np.ndarray): Array of labels for points (shape (n,), dtype=np.uint16.
+            labels uncertanities (np.ndarray): Array of uncertanities for labels (shape (n,), dtype=np.float32). Calculated as 1/depth, where depth is the distance from the optical center of the camera to the point.
+    """
+    
+    target_pose, target_scan, _, _ = target_scan_bundle
+
+    dynamic_weights = np.zeros(len(target_scan), dtype=np.float32)
+    target_scan_t = transform_xyz(target_pose, target_scan)
+    
+    #Check available cpu's
+    cpus = multiprocessing.cpu_count() - 1
+    logger.info(f"Use {cpus} cpus for KD-tree")    
+    
+    #Build KD-tree on top of the source data
+    nn = RadiusNeighborsClassifier(algorithm='kd_tree', radius=0.3, weights='distance', outlier_label=0, n_jobs=cpus) # type: ignore
+    nn.fit(batch_scans, [int(l) for l in batch_labels])
+    r_neigh_dist, r_neigh_ids = nn.radius_neighbors(target_scan_t, radius=0.3, return_distance=True, sort_results=True)
+
+    for m_id, (n_dists, n_ids) in tqdm(enumerate(zip(r_neigh_dist, r_neigh_ids)), 'init semantic weights', position=stack_size()):
+            
+        # remove target point itself to avoid zero divisions
+        n_dists = n_dists[1:]
+        n_ids = n_ids[1:]
+
+        if len(n_ids) == 0:
+            continue    
+
+        # moving objects
+        temporal_consist = float(np.sum(n_ids >= len(target_scan)))/len(n_ids)
+        logger.debug(f"temporal_consist: {temporal_consist}")
+
+
+        dynamic_weights[m_id] = temporal_consist
+        logger.debug(f"scan_weights[m_id]: {dynamic_weights[m_id]}")
+
+
+    # Normalize
+    max_w = max(dynamic_weights)
+    min_w = min(dynamic_weights)
+    if max_w - min_w != 0:
+        dynamic_weights -= min_w
+        dynamic_weights /= (max_w - min_w)
+
+    logger.debug(f"Weights > 0: {len(dynamic_weights)}")
+
+    # cloudshow(m_scan, np.asarray(scan_weights > 0.2, dtype=np.uint16), colorscale=simple_colors)
+    # cloudshow(target_scan, batch_labels[:len(target_scan)], labels=["Uncert: "+str(x) for x in scan_weights])
+    # input()
+    return dynamic_weights
     
 def dataset_segmentation(dataset: MIPT_Campus_Dataset, 
                          overwrite=cfg.semantics.overwrite_existing_data) -> None: # type: ignore
     
-    pbar = tqdm(total=len(dataset), desc="Segmenting scans..") #tqdm(total=len(dataset))
+    pbar = tqdm(total=len(dataset),
+                desc="Segmenting scans..",
+                position=stack_size(),
+                colour='#0ace41') #tqdm(total=len(dataset))
     i = 0
 
     out_dir = os.path.join(cfg.dataset_root_dir, # type: ignore
-                           'unpacked_'+ cfg.sequence, # type: ignore
-                           'velodyne_points',
-                           cfg.semantics.initial_out_dir) # type: ignore
+                           'data', # type: ignore
+                            cfg.sequence, # type: ignore
+                            'velodyne',
+                            cfg.semantics.initial_out_dir) # type: ignore
     
     # env_setup
     if os.path.exists(out_dir):
@@ -343,7 +427,7 @@ def dataset_segmentation(dataset: MIPT_Campus_Dataset,
             logger.warning("Dataset segmentation data already exists! Skipping this step. If you want to ovewrite existing data, please, call func with corresponding flag.")
             return
         
-    os.makedirs(out_dir)
+    os.makedirs(out_dir, exist_ok=True)
     os.makedirs(os.path.join(out_dir, "labels"), exist_ok=True, mode=0o775)
     os.makedirs(os.path.join(out_dir, "uncert"), exist_ok=True, mode=0o775)
 
@@ -352,7 +436,7 @@ def dataset_segmentation(dataset: MIPT_Campus_Dataset,
         #     i+=1
         #     pbar.update(1)
         #     continue
-        if i == 150:
+        if i == 500:
             break
         if m_scan is None:
             pbar.update(1)
