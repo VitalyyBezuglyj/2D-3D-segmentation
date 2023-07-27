@@ -162,3 +162,16 @@ def stack_size(size=2):
         frame = frame.f_back
         if not frame:
             return size - 2
+        
+def filter_group_of_objects(points: np.ndarray, labels: np.ndarray, group: str) -> Tuple[np.ndarray, np.ndarray]:
+    sem_cfg = cfg.semantics_mapping.__dict__ # type: ignore
+    new_mask = np.zeros(len(labels), dtype=bool)
+    for label in sem_cfg[group].labels: # type: ignore
+        new_mask = np.logical_or(new_mask, labels==label)
+        logger.debug(f"\tFound {sum(new_mask.astype(np.int16))} labels of {group} class")
+    
+    new_mask = np.logical_not(new_mask)
+    f_points = points[new_mask]
+    f_labels = labels[new_mask]
+
+    return f_points, f_labels

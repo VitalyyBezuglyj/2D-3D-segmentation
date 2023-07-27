@@ -436,8 +436,8 @@ def dataset_segmentation(dataset: MIPT_Campus_Dataset,
         #     i+=1
         #     pbar.update(1)
         #     continue
-        if i == 500:
-            break
+        # if i == 500:
+        #     break
         if m_scan is None:
             pbar.update(1)
             i+=1

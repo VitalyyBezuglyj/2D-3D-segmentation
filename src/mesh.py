@@ -4,6 +4,7 @@ from tqdm import tqdm
 from vdbfusion import VDBVolume
 import trimesh
 import json
+import point_cloud_utils as pcu
 
 from typing import Dict
 
@@ -23,16 +24,19 @@ class SemanticMeshBuilder():
         #     seg_config = json.load(f)
         # self.stuff_classes = seg_config['stuff_classes']
         # self.stuff_colors = seg_config['stuff_colors']
+ 
+        self.lidar_cfg = cfg.lidar # type: ignore
 
         self.sem_cfg = cfg.semantics_mapping.__dict__ # type: ignore
         self.sem_classes = list(self.sem_cfg.keys()) # type: ignore
 
         self.sem_classes.remove('unknown')
+        self.sem_classes.remove('moving_object')
         for s_class in self.sem_classes:
             self.mesh_layers[s_class] = VDBVolume(
                                             voxel_size=self.sem_cfg[s_class].voxel_size,
                                             sdf_trunc=0.3,
-                                            space_carving=False)
+                                            space_carving=True)
 
         pass
 
@@ -72,7 +76,7 @@ class SemanticMeshBuilder():
         Returns:
             None
         """
-        
+
         sem_masks = self._split_by_classes(labels)
 
         logger.debug(f"Semantic aware scan integration:")
@@ -80,7 +84,19 @@ class SemanticMeshBuilder():
             if sum(sem_masks[s_class]) == 0:
                 logger.debug(f"\tSkipping {s_class} mesh layer - mask is empty.")
                 continue
-            self.mesh_layers[s_class].integrate(scan[sem_masks[s_class]].astype(np.float64), pose)
+            elif sum(sem_masks[s_class]) < 10:
+                logger.debug(f"\tSkipping {s_class} mesh layer - there are less than 10 points.")
+                continue
+            if len(self.sem_cfg[s_class].bounds):
+                lb = self.sem_cfg[s_class].bounds[:3]
+                ub = self.sem_cfg[s_class].bounds[3:]
+                in_range_idx = np.all(np.logical_and(lb <= scan, 
+                                             scan <= ub), axis=1)
+                sem_masks[s_class] = np.logical_and(sem_masks[s_class], in_range_idx)
+            masked_scan = scan[sem_masks[s_class]]
+            # voxelized_scan = self._voxel_grid_filter(masked_scan, voxel_size=0.15)
+            scan_t = transform_xyz(pose, masked_scan)
+            self.mesh_layers[s_class].integrate(scan_t.astype(np.float64), pose)
             logger.debug(f"\t{sum(sem_masks[s_class])} points integrated to {s_class} mesh layer")
         
 
@@ -92,6 +108,7 @@ class SemanticMeshBuilder():
         for s_class in self.sem_classes:
             vertices, triangles = self.mesh_layers[s_class].extract_triangle_mesh(fill_holes=True,
                                                                                   min_weight=self.sem_cfg[s_class].ext_weight)
+
             
             logger.debug(f"Extracted {s_class} mesh layer with V: {len(vertices)} T: {len(triangles)}")
             mesh_colors = self._get_face_colors(len(triangles), s_class)
@@ -102,6 +119,24 @@ class SemanticMeshBuilder():
         
         final_scene.export(path, file_type="ply")
 
+    def _voxel_grid_filter(self, points: np.ndarray, voxel_size: float) -> np.ndarray:
+        """
+        Filter pointcloud using voxel grid. 
+        """
+        if len(points) < 10:
+            return points
+
+        bbox_size = self.lidar_cfg.upper_bounds[0] - self.lidar_cfg.lower_bounds[0]
+        num_voxels_per_axis = np.ceil(bbox_size / voxel_size)
+        logger.debug(f"Mesh voxels per axis: {num_voxels_per_axis}")
+        # num_voxels_per_axis = 128
+
+        #? Any arguments after the points are treated as attribute arrays and get averaged within each voxel
+        logger.debug(f"pcl shape: {points.shape}")
+        p_sampled = pcu.downsample_point_cloud_on_voxel_grid(voxel_size, points)
+        
+        logger.debug(f"Sampled res: {np.asarray(p_sampled).shape}")
+        return np.asarray(p_sampled)
 
 
         
