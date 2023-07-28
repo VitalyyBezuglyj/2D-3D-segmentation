@@ -45,14 +45,12 @@ class MIPT_STRL_Dataset:
         
         self._getitem_set = {'images': False,
                              'scan': True,
-                             'pose': True,
+                             'lidar_pose': True,
+                             'cam_poses': False,
                              'depth': False}
 
         # Read stuff
-        #? self.zed_calibration = read_calib_file(os.path.join(self.cfg.dataset_root_dir, 
-        #?                                                          "zed_calib.yml"))
-        #? self.realsense_calibration = read_calib_file(os.path.join(self.cfg.dataset_root_dir, 
-        #?                                                                "realsense_calib.yml"))
+        self.calib_zed = read_calib_file(self.cfg.front_cam.config_path)
 
         self.load_poses_strl(os.path.join(self.cfg.dataset_root_dir,
                                      self.cfg.sequence, 
@@ -81,6 +79,15 @@ class MIPT_STRL_Dataset:
         self.big_ts_diff = False
 
         self.t_base2lidar = build_matrix(*self.cfg.lidar.base_link2lidar_t, q=self.cfg.lidar.base_link2lidar_q)
+        self.t_lidar2base = np.linalg.inv(self.t_base2lidar)
+
+        self.t_lidar2cam = build_matrix(*self.cfg.front_cam.left.lidar2cam_t, q=self.cfg.front_cam.left.lidar2cam_q)
+        self.t_cam2lidar = np.linalg.inv(self.t_lidar2cam)
+
+        self.set_lidar_poses()
+        self.set_cam_poses()
+
+
 
     
     def __getitem__(self, idx):
@@ -104,8 +111,8 @@ class MIPT_STRL_Dataset:
         return_list = []
 
         try:
-            if self._getitem_set['pose']:
-                return_list.append(self.poses[idx])
+            if self._getitem_set['lidar_pose']:
+                return_list.append(self.lidar_poses[idx])
         except Exception as e:
             self.logger.error(f"Get pose exception: {e}")
         
@@ -115,6 +122,12 @@ class MIPT_STRL_Dataset:
                 return_list.append(scan)
         except Exception as e:
             self.logger.error(f"Get scan exception: {e}")
+
+        try:
+            if self._getitem_set['cam_poses']:
+                return_list.append(self.cam_poses[idx])
+        except Exception as e:
+            self.logger.error(f"Get cam pose exception: {e}")
 
         try:
             if self._getitem_set['images']:
@@ -230,6 +243,12 @@ class MIPT_STRL_Dataset:
         self.poses_t = np.asarray(self.poses_t)
 
         self.logger.warning(f"Poses ts: {self.poses_ts[:10]}")
+
+    def set_cam_poses(self):
+        self.cam_poses = np.asarray([self.t_cam2lidar @ pose @ self.t_lidar2cam for pose in self.lidar_poses])
+
+    def set_lidar_poses(self):
+        self.lidar_poses = np.asarray([self.t_base2lidar @ pose for pose in self.poses])
 
     def n_nearest_by_pose(self, idx: Union[int, np.intp], max_dist: float, without_self = True) -> np.ndarray:
         poses_t = self.poses_t - self.poses_t[idx]

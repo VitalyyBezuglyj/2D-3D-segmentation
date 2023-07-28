@@ -1,8 +1,6 @@
 import coloredlogs, logging
 import numpy as np
 from tqdm import tqdm
-from vdbfusion import VDBVolume
-import trimesh
 
 import sys
 from IPython.core import ultratb
@@ -13,7 +11,7 @@ logger = logging.getLogger(__name__)
 from src.config import get_config, Config
 from src.dataset_strl import MIPT_STRL_Dataset
 from src.visualize import save_colored_cloud
-from src.utils import transform_xyz, stack_size
+from src.utils import transform_xyz, stack_size, read_calib_file
 
 
 def main(cfg: Config):
@@ -21,15 +19,16 @@ def main(cfg: Config):
     dataset = MIPT_STRL_Dataset(cfg)
     dataset._getitem_set['images'] = True
     dataset._getitem_set['depth'] = True
+    dataset._getitem_set['image_poses'] = True
 
     #! MAP
     map = np.empty((0,3), dtype='float32')
     map_labels = np.empty((0), dtype='int16')
     #!\\\\\
 
-    pbar = tqdm(total=len(dataset), desc="Segmenting scans..", colour = 'GREEN') #tqdm(total=len(dataset))
+    pbar = tqdm(total=len(dataset), desc="Preprocessing data..", colour = 'GREEN') #tqdm(total=len(dataset))
     i = 0
-    for pose, scan in dataset: #zed_img, rs_img, , scan, zed_mask, realsense_mask #
+    for pose, scan, image, depth in dataset:
         # if i < 3000:
         #     i+=1
         #     pbar.update(1)
