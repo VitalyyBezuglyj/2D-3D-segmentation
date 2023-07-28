@@ -8,7 +8,7 @@ import argparse
 from pprint import pprint, pformat
 import yaml
 
-_config_path = "./config/mipt_campus_day.yaml"
+_config_path = "./config/mipt_5_floor.yaml"
 
 class Config:
     """
