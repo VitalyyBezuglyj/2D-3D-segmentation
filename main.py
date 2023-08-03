@@ -90,7 +90,7 @@ def main(cfg: Config):
 
     # map, map_labels = filter_group_of_objects(map, map_labels, group='moving_object')
     # map, map_labels = filter_group_of_objects(map, map_labels, group='unknown')
-    save_colored_cloud(map, map_labels, save_path='output/test_strl_3.pcd')
+    save_colored_cloud(map, labels=map_labels, save_path='output/test_strl_3.pcd')
 
     # vertices, triangles = vdb_volume.extract_triangle_mesh(fill_holes=True, min_weight=3.0)
     # logger.info(f"V: {len(vertices)} T: {len(triangles)}")

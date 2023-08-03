@@ -7,7 +7,11 @@ test_option: ""
 #Data info
 
 dataset_root_dir: '/home/kowalski/data/strl/'
-sequence: 'unpacked_10_find'
+preprocess_root_dir: '/home/kowalski/data/strl/openscene_10_find_demo'
+preproc_sample_freq: 10
+overwrite_existing_data: False
+
+sequence: '10_find'
 segmentation_config: '/home/kowalski/data/MIPT_campus/map_aligned_data/anno_config.json'
 
 semantics:

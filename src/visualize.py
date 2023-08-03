@@ -3,9 +3,11 @@
 import cv2
 import json
 import logging
+from typing import Optional
 
 import numpy as np
 import open3d as o3d
+import trimesh
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.colors as mplc
@@ -227,9 +229,51 @@ def draw_points_on_image(img: np.ndarray, points: np.ndarray, colors: np.ndarray
     
     return proj_img
 
+def save_colored_map(scan: np.ndarray,
+                     colors: Optional[np.ndarray] = None,
+                     labels: Optional[np.ndarray] = None,
+                     camera_poses: Optional[np.ndarray] = None,
+                     lidar_poses: Optional[np.ndarray] = None,
+                     save_path='output/colored_map'):
+    
+    if isinstance(labels, np.ndarray):
+        colors = np.array([np.asarray(STUFF_COLORS[label], dtype=float)/255. for label in labels])
+    elif not isinstance(colors, np.ndarray):
+         raise ValueError("Both 'colors' and 'labels' args are None. Provide at least one to save colored cloud.")
 
-def save_colored_cloud(scan: np.ndarray, labels: np.ndarray, save_path='output/colored_scan.pcd'):
-    scan_colors = np.array([np.asarray(STUFF_COLORS[label], dtype=float)/255. for label in labels])
+    pcl = trimesh.PointCloud(vertices=scan, colors=colors)
+    pcl.export(f"{save_path}_pcl.ply")
+    
+    scene = trimesh.Scene()
+    if isinstance(camera_poses, np.ndarray):
+        for pose in camera_poses:
+            scene.add_geometry(trimesh.creation.axis(origin_size=0.05,
+                                                     axis_radius=0.03,
+                                                     axis_length=0.15,
+                                                     transform=pose,
+                                                     origin_color=[1., 0, 0]))
+            # scene.add_geometry(trimesh.creation.cone(radius=0.15,
+            #                                          height=0.15,
+            #                                          sections=4,
+            #                                          transform=pose))
+    if isinstance(lidar_poses, np.ndarray):
+        for pose in lidar_poses:
+            scene.add_geometry(trimesh.creation.axis(origin_size=0.05,
+                                                     axis_radius=0.03,
+                                                     axis_length=0.15,
+                                                     transform=pose,
+                                                     origin_color=[0, 0, 1.]))
+            
+    scene.export(f"{save_path}_poses.ply")
+            
+
+def save_colored_cloud(scan: np.ndarray, colors: Optional[np.ndarray] = None, labels: Optional[np.ndarray] = None, save_path='output/colored_scan.pcd'):
+    if isinstance(labels, np.ndarray):
+        scan_colors = np.array([np.asarray(STUFF_COLORS[label], dtype=float)/255. for label in labels])
+    elif isinstance(colors, np.ndarray):
+        scan_colors = colors /255.
+    else:
+        raise ValueError("Both 'colors' and 'labels' args are None. Provide at least one to save colored cloud.")
 
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(scan)

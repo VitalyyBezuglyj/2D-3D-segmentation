@@ -1,6 +1,7 @@
 import os
 import sys
 import yaml
+import math
 import logging
 from typing import Tuple
 from itertools import count
@@ -9,6 +10,7 @@ import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
+import colorsys
 import quaternion
 from quaternion import as_rotation_matrix
 
@@ -26,6 +28,20 @@ def _gauss(x, x0=0., sigma=1.):
 
 _vec_gauss = np.vectorize(_gauss)
 
+
+float2color = np.vectorize(lambda f: tuple([int(255*c) for c in colorsys.hsv_to_rgb(f, 1, 1)][::-1]))
+
+# explicit function to normalize array
+def normalize(arr, t_min, t_max) -> np.ndarray:
+    arr = np.asarray(arr)
+    # norm_arr = []
+    diff = t_max - t_min
+    arr_min = min(arr)
+    arr_max = max(arr)
+    diff_arr = max(arr) - min(arr)   
+    return (((arr - arr_min)*diff)/diff_arr) + t_min
+
+
 def inverse_gaussian_kernel(distances):
     # distances = np.asarray(distances)
     # print(distances.shape)
@@ -42,6 +58,21 @@ def inverse_gaussian_kernel(distances):
             weights = 1 - weights
             weighted.append(d_vec * weights)
     return np.asarray(weighted)
+
+# from openscene github
+def adjust_intrinsic(intrinsic, intrinsic_image_dim, image_dim):
+    '''Adjust camera intrinsics.'''
+
+    if (intrinsic_image_dim == image_dim).all():
+        return intrinsic
+    resize_width = int(math.floor(image_dim[1] * float(
+                    intrinsic_image_dim[0]) / float(intrinsic_image_dim[1])))
+    intrinsic[0, 0] *= float(resize_width) / float(intrinsic_image_dim[0])
+    intrinsic[1, 1] *= float(image_dim[1]) / float(intrinsic_image_dim[1])
+    # account for cropping here
+    intrinsic[0, 2] *= float(image_dim[0] - 1) / float(intrinsic_image_dim[0] - 1)
+    intrinsic[1, 2] *= float(image_dim[1] - 1) / float(intrinsic_image_dim[1] - 1)
+    return intrinsic
 
 
 def read_calib_file(file_path: str) -> dict:

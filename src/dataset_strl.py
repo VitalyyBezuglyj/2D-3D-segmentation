@@ -7,6 +7,7 @@ import glob
 import logging
 
 import cv2
+import imageio
 import numpy as np
 from typing import Union, Tuple
 
@@ -27,25 +28,25 @@ class MIPT_STRL_Dataset:
         self.logger.addHandler(TqdmLoggingHandler())
 
         self.zed_left_dir = os.path.join(self.cfg.dataset_root_dir,
-                                         self.cfg.sequence, 
+                                         f"unpacked_{self.cfg.sequence}", 
                                          'zed_node_left_image_rect_color_compressed')
         self.logger.debug(f"zed_left_dir: {self.zed_left_dir}")
         
 
         self.zed_depth_dir = os.path.join(self.cfg.dataset_root_dir, 
-                                          self.cfg.sequence, 
+                                          f"unpacked_{self.cfg.sequence}", 
                                           'zed_node_depth_depth_registered')
         
         self.logger.debug(f"zed_depth: {self.zed_depth_dir}")
         
         self.velodyne_dir = os.path.join(self.cfg.dataset_root_dir, 
-                                         self.cfg.sequence, 
+                                         f"unpacked_{self.cfg.sequence}", 
                                          'velodyne_points')
         self.logger.debug(f"velodyne_dir: {self.velodyne_dir}")
         
         self._getitem_set = {'images': False,
                              'scan': True,
-                             'lidar_pose': True,
+                             'lidar_poses': True,
                              'cam_poses': False,
                              'depth': False}
 
@@ -53,7 +54,7 @@ class MIPT_STRL_Dataset:
         self.calib_zed = read_calib_file(self.cfg.front_cam.config_path)
 
         self.load_poses_strl(os.path.join(self.cfg.dataset_root_dir,
-                                     self.cfg.sequence, 
+                                     f"unpacked_{self.cfg.sequence}", 
                                      'cartographer_tracked_global_odometry/depth_timestamps/poses.txt'))
 
         self.zed_left_ts = self.load_ts(os.path.join(self.zed_left_dir, "timestamps.txt"))
@@ -111,7 +112,7 @@ class MIPT_STRL_Dataset:
         return_list = []
 
         try:
-            if self._getitem_set['lidar_pose']:
+            if self._getitem_set['lidar_poses']:
                 return_list.append(self.lidar_poses[idx])
         except Exception as e:
             self.logger.error(f"Get pose exception: {e}")
@@ -196,7 +197,8 @@ class MIPT_STRL_Dataset:
     def read_zed_deph(self, idx: np.intp):
         if idx is None:
             return None
-        return cv2.imread(self.zed_depth_files[idx], cv2.IMREAD_UNCHANGED)
+        return imageio.v3.imread(self.zed_depth_files[idx]).astype(np.uint16) 
+        #cv2.imread(self.zed_depth_files[idx], cv2.IMREAD_UNCHANGED)
     
     def read_zed_img(self, idx: np.intp):
         if idx is None:
@@ -211,7 +213,7 @@ class MIPT_STRL_Dataset:
         self.poses = []
         self.poses_t = [] # only translation
         self.poses_ts = self.load_ts(os.path.join(self.cfg.dataset_root_dir,
-                                     self.cfg.sequence, 
+                                     f"unpacked_{self.cfg.sequence}", 
                                      'cartographer_tracked_global_odometry/depth_timestamps/timestamps.txt'))
         for vec in poses:
             P_ = np.reshape(np.asarray(vec), (3, 4))
@@ -245,10 +247,12 @@ class MIPT_STRL_Dataset:
         self.logger.warning(f"Poses ts: {self.poses_ts[:10]}")
 
     def set_cam_poses(self):
-        self.cam_poses = np.asarray([self.t_cam2lidar @ pose @ self.t_lidar2cam for pose in self.lidar_poses])
+        self.cam_poses = np.asarray([pose @ self.t_cam2lidar for pose in self.lidar_poses])
 
     def set_lidar_poses(self):
+        # self.lidar_poses = np.asarray([pose @ self.t_base2lidar for pose in self.poses])
         self.lidar_poses = np.asarray([self.t_base2lidar @ pose for pose in self.poses])
+
 
     def n_nearest_by_pose(self, idx: Union[int, np.intp], max_dist: float, without_self = True) -> np.ndarray:
         poses_t = self.poses_t - self.poses_t[idx]
